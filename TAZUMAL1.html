@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TAZUMAL 3D - Visor Arqueológico Interactivo</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        maya: {
+                            50: '#fdf8ec',
+                            100: '#faefd3',
+                            500: '#d99b26',
+                            600: '#b87c1c',
+                            900: '#5c3a0b',
+                            dark: '#080c14',
+                            panel: 'rgba(12, 17, 26, 0.85)'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&family=Inter:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .hud-font { font-family: 'Space Grotesk', sans-serif; }
+        .glass-panel {
+            background: rgba(12, 17, 26, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(217, 155, 38, 0.25);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+        .glass-btn {
+            background: rgba(22, 30, 44, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(217, 155, 38, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .glass-btn:hover {
+            background: rgba(217, 155, 38, 0.25);
+            border-color: rgba(217, 155, 38, 0.9);
+            box-shadow: 0 0 25px rgba(217, 155, 38, 0.4);
+            transform: translateY(-1px);
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(8, 12, 20, 0.6); }
+        ::-webkit-scrollbar-thumb { background: rgba(217, 155, 38, 0.5); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(217, 155, 38, 0.9); }
+        #canvas-container { width: 100vw; height: 100vh; position: fixed; top: 0; left: 0; z-index: 1; }
+        .scanline {
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.25));
+            background-size: 100% 4px;
+        }
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 0.8; }
+        }
+        .glow-effect { animation: pulseGlow 3s infinite ease-in-out; }
+    </style>
+</head>
+<body class="bg-maya-dark text-gray-100 overflow-hidden select-none">
+
+    <div id="canvas-container"></div>
+    <div class="absolute inset-0 scanline pointer-events-none z-10 opacity-20"></div>
+
+    <header class="absolute top-0 left-0 right-0 z-20 p-4 md:p-6 flex justify-between items-center pointer-events-none">
+        <div class="glass-panel px-5 py-3 rounded-2xl flex items-center gap-4 pointer-events-auto shadow-2xl">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-maya-500 to-maya-900 flex items-center justify-center text-white shadow-lg shadow-maya-500/30">
+                <i class="fa-solid fa-cube text-lg"></i>
+            </div>
+            <div>
+                <h1 class="hud-font font-bold text-lg md:text-xl tracking-wider text-maya-100">TAZUMAL <span class="text-maya-500 font-light text-sm">3D HUD v3.0</span></h1>
+                <p class="text-xs text-gray-400 tracking-widest uppercase">Chalchuapa, El Salvador • Visor Arqueológico</p>
+            </div>
+        </div>
+
+        <div class="hidden md:flex items-center gap-3 pointer-events-auto">
+            <div class="glass-panel px-4 py-2 rounded-xl flex items-center gap-3 text-xs text-gray-300">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>TELEMETRÍA 3D ACTIVA</span>
+            </div>
+            <button onclick="toggleAudio()" id="audio-btn" class="glass-btn px-4 py-2.5 rounded-xl text-xs font-semibold text-maya-500 flex items-center gap-2">
+                <i class="fa-solid fa-volume-high"></i> <span id="audio-txt">Ambiente: OFF</span>
+            </button>
+        </div>
+    </header>
+
+    <aside class="absolute left-4 md:left-6 top-24 bottom-24 w-80 md:w-96 z-20 flex flex-col gap-4 pointer-events-none transition-all duration-300" id="sidebar">
+        <!-- Camera Perspectives -->
+        <div class="glass-panel p-5 rounded-2xl pointer-events-auto shadow-2xl flex flex-col gap-4">
+            <div class="flex items-center justify-between border-b border-maya-500/20 pb-3">
+                <span class="hud-font text-sm font-semibold tracking-wider text-maya-500 flex items-center gap-2">
+                    <i class="fa-solid fa-compass"></i> PERSPECTIVAS 3D
+                </span>
+                <span class="text-xs px-2 py-0.5 rounded bg-maya-500/20 text-maya-300 border border-maya-500/30 font-mono">Interactive</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2.5">
+                <button onclick="setView('overview')" class="glass-btn p-3 rounded-xl text-left flex flex-col gap-1 group">
+                    <span class="text-xs text-gray-400 group-hover:text-maya-500 font-mono">01</span>
+                    <span class="text-xs font-semibold text-gray-200">Pirámide Principal</span>
+                </button>
+                <button onclick="setView('plaza')" class="glass-btn p-3 rounded-xl text-left flex flex-col gap-1 group">
+                    <span class="text-xs text-gray-400 group-hover:text-maya-500 font-mono">02</span>
+                    <span class="text-xs font-semibold text-gray-200">Plaza Ceremonial</span>
+                </button>
+                <button onclick="setView('structure')" class="glass-btn p-3 rounded-xl text-left flex flex-col gap-1 group">
+                    <span class="text-xs text-gray-400 group-hover:text-maya-500 font-mono">03</span>
+                    <span class="text-xs font-semibold text-gray-200">Escalinata Monumental</span>
+                </button>
+                <button onclick="setView('museum')" class="glass-btn p-3 rounded-xl text-left flex flex-col gap-1 group">
+                    <span class="text-xs text-gray-400 group-hover:text-maya-500 font-mono">04</span>
+                    <span class="text-xs font-semibold text-gray-200">Estructuras Menores</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Photographic Gallery & Real References -->
+        <div class="glass-panel p-5 rounded-2xl pointer-events-auto shadow-2xl flex-1 flex flex-col gap-3 overflow-hidden">
+            <div class="flex items-center justify-between border-b border-maya-500/20 pb-2">
+                <span class="hud-font text-sm font-semibold tracking-wider text-maya-500 flex items-center gap-2">
+                    <i class="fa-solid fa-images"></i> REGISTRO FOTOGRÁFICO REAL
+                </span>
+            </div>
+            <div class="flex-1 overflow-y-auto pr-1 flex flex-col gap-3">
+                <!-- Card 1 -->
+                <div onclick="selectPhoto('overview', 'Pirámide Principal (Estructura B1-1)', 'La estructura principal de Tazumal es una pirámide escalonada mesoamericana construida con piedra volcánica y adobe, reflejando el apogeo de la arquitectura maya en Chalchuapa.')" class="glass-btn p-2.5 rounded-xl flex gap-3 items-center cursor-pointer group">
+                    <img src="https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=300&q=80" alt="Pirámide Tazumal" class="w-16 h-16 rounded-lg object-cover border border-maya-500/30 group-hover:border-maya-500 transition-all" onerror="this.src='https://placehold.co/150x150/1a2233/d99b26?text=Tazumal'">
+                    <div class="flex-1">
+                        <h4 class="text-xs font-semibold text-gray-200 group-hover:text-maya-400">Estructura B1-1</h4>
+                        <p class="text-[10px] text-gray-400 line-clamp-2 mt-0.5">Pirámide principal con múltiples fases constructivas superpuestas.</p>
+                    </div>
+                </div>
+                <!-- Card 2 -->
+                <div onclick="selectPhoto('structure', 'Detalle de Escalinatas', 'Las escalinatas monumentales conducen hacia el templo superior. Destaca la mampostería fina de bloques de basalto labrados con precisión milimétrica.')" class="glass-btn p-2.5 rounded-xl flex gap-3 items-center cursor-pointer group">
+                    <img src="https://images.unsplash.com/photo-1599814353845-2f5231c9a016?auto=format&fit=crop&w=300&q=80" alt="Escalinatas" class="w-16 h-16 rounded-lg object-cover border border-maya-500/30 group-hover:border-maya-500 transition-all" onerror="this.src='https://placehold.co/150x150/1a2233/d99b26?text=Escalinata'">
+                    <div class="flex-1">
+                        <h4 class="text-xs font-semibold text-gray-200 group-hover:text-maya-400">Escalinata Monumental</h4>
+                        <p class="text-[10px] text-gray-400 line-clamp-2 mt-0.5">Arquitectura ceremonial con relieves originales conservados.</p>
+                    </div>
+                </div>
+                <!-- Card 3 -->
+                <div onclick="selectPhoto('plaza', 'Plaza Ceremonial y Entorno', 'Espacio abierto donde se congregaban sacerdotes y dignatarios para rituales astronómicos y ceremonias sagradas.')" class="glass-btn p-2.5 rounded-xl flex gap-3 items-center cursor-pointer group">
+                    <img src="https://images.unsplash.com/photo-1508873696983-2df5c920ac3c?auto=format&fit=crop&w=300&q=80" alt="Plaza" class="w-16 h-16 rounded-lg object-cover border border-maya-500/30 group-hover:border-maya-500 transition-all" onerror="this.src='https://placehold.co/150x150/1a2233/d99b26?text=Plaza'">
+                    <div class="flex-1">
+                        <h4 class="text-xs font-semibold text-gray-200 group-hover:text-maya-400">Plaza Ceremonial</h4>
+                        <p class="text-[10px] text-gray-400 line-clamp-2 mt-0.5">Centro cívico y religioso del asentamiento prehispánico.</p>
+                    </div>
+                </div>
+                <!-- Card 4 -->
+                <div onclick="selectPhoto('museum', 'Museo Dr. Stanley H. Boggs', 'Alberga artefactos invaluables descubiertos en el sitio, incluyendo estelas, cerámicas policromadas, jade y ofrendas funerarias.')" class="glass-btn p-2.5 rounded-xl flex gap-3 items-center cursor-pointer group">
+                    <img src="https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?auto=format&fit=crop&w=300&q=80" alt="Museo" class="w-16 h-16 rounded-lg object-cover border border-maya-500/30 group-hover:border-maya-500 transition-all" onerror="this.src='https://placehold.co/150x150/1a2233/d99b26?text=Museo'">
+                    <div class="flex-1">
+                        <h4 class="text-xs font-semibold text-gray-200 group-hover:text-maya-400">Museo Arqueológico</h4>
+                        <p class="text-[10px] text-gray-400 line-clamp-2 mt-0.5">Colección permanente de reliquias de la civilización maya.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <div class="absolute bottom-4 md:bottom-6 left-80 md:left-[416px] right-4 md:right-6 z-20 flex flex-col md:flex-row gap-4 items-center justify-between pointer-events-none">
+        <div class="glass-panel p-4 rounded-2xl pointer-events-auto shadow-2xl flex-1 w-full flex items-center justify-between">
+            <div>
+                <span class="text-[10px] text-maya-500 font-mono tracking-widest uppercase block">ESTRUCTURA SELECCIONADA</span>
+                <h3 id="info-title" class="hud-font font-bold text-sm md:text-base text-white">Pirámide Principal - Tazumal</h3>
+                <p id="info-desc" class="text-xs text-gray-300 mt-1 max-w-2xl">Modelo 3D interactivo en tiempo real con iluminación ambiental dinámica, partículas atmosféricas y controles orbitales fluidos.</p>
+            </div>
+            <div class="hidden lg:flex items-center gap-2 pl-4 border-l border-maya-500/20">
+                <button onclick="resetCamera()" class="glass-btn px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 flex items-center gap-2">
+                    <i class="fa-solid fa-rotate"></i> Resetear Vista
+                </button>
+                <button onclick="toggleAutoRotate()" id="rotate-btn" class="glass-btn px-3 py-2 rounded-xl text-xs font-semibold text-maya-500 flex items-center gap-2">
+                    <i class="fa-solid fa-play"></i> Auto Rotar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, pyramidGroup, particles;
+        let isAutoRotating = true;
+        let mouseX = 0, mouseY = 0;
+        let windowHalfX = window.innerWidth / 2;
+        let windowHalfY = window.innerHeight / 2;
+        let audioCtx = null, audioInterval = null;
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x080c14, 0.012);
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 25, 48);
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.3;
+            container.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xfff5e6, 0.65);
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xffeedd, 1.9);
+            sunLight.position.set(35, 55, 35);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 160;
+            const d = 40;
+            sunLight.shadow.camera.left = -d;
+            sunLight.shadow.camera.right = d;
+            sunLight.shadow.camera.top = d;
+            sunLight.shadow.camera.bottom = -d;
+            scene.add(sunLight);
+
+            const fillLight = new THREE.DirectionalLight(0x4a7c59, 0.6);
+            fillLight.position.set(-35, 25, -35);
+            scene.add(fillLight);
+
+            // Build Procedural Mayan Pyramid Model
+            createTazumalModel();
+
+            // Build Atmospheric Particles
+            createAtmosphere();
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('mousemove', onDocumentMouseMove);
+            
+            // Touch & Drag controls
+            let isDragging = false;
+            let previousMousePosition = { x: 0, y: 0 };
+
+            renderer.domElement.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                isAutoRotating = false;
+                const btn = document.getElementById('rotate-btn');
+                if (btn) btn.innerHTML = '<i class="fa-solid fa-play"></i> Auto Rotar';
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+
+            renderer.domElement.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const deltaX = e.clientX - previousMousePosition.x;
+                const deltaY = e.clientY - previousMousePosition.y;
+
+                if (pyramidGroup) {
+                    pyramidGroup.rotation.y += deltaX * 0.008;
+                    pyramidGroup.rotation.x += deltaY * 0.008;
+                    pyramidGroup.rotation.x = Math.max(-0.2, Math.min(Math.PI / 3, pyramidGroup.rotation.x));
+                }
+
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+
+            window.addEventListener('mouseup', () => { isDragging = false; });
+
+            renderer.domElement.addEventListener('wheel', (e) => {
+                camera.position.z += e.deltaY * 0.05;
+                camera.position.z = Math.max(20, Math.min(85, camera.position.z));
+            }, { passive: true });
+
+            // Touch events for mobile
+            renderer.domElement.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    isDragging = true;
+                    isAutoRotating = false;
+                    const btn = document.getElementById('rotate-btn');
+                    if (btn) btn.innerHTML = '<i class="fa-solid fa-play"></i> Auto Rotar';
+                    previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                }
+            });
+
+            renderer.domElement.addEventListener('touchmove', (e) => {
+                if (!isDragging || e.touches.length !== 1) return;
+                const deltaX = e.touches[0].clientX - previousMousePosition.x;
+                const deltaY = e.touches[0].clientY - previousMousePosition.y;
+
+                if (pyramidGroup) {
+                    pyramidGroup.rotation.y += deltaX * 0.008;
+                    pyramidGroup.rotation.x += deltaY * 0.008;
+                    pyramidGroup.rotation.x = Math.max(-0.2, Math.min(Math.PI / 3, pyramidGroup.rotation.x));
+                }
+
+                previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            });
+
+            renderer.domElement.addEventListener('touchend', () => { isDragging = false; });
+
+            animate();
+        }
+
+        function createTazumalModel() {
+            pyramidGroup = new THREE.Group();
+
+            // Materials
+            const stoneMaterial = new THREE.MeshStandardMaterial({
+                color: 0x736853,
+                roughness: 0.85,
+                metalness: 0.1,
+                flatShading: true
+            });
+
+            const darkStoneMaterial = new THREE.MeshStandardMaterial({
+                color: 0x4d4435,
+                roughness: 0.9,
+                metalness: 0.1,
+                flatShading: true
+            });
+
+            const grassMaterial = new THREE.MeshStandardMaterial({
+                color: 0x273e30,
+                roughness: 0.7,
+                metalness: 0.05
+            });
+
+            const templeMaterial = new THREE.MeshStandardMaterial({
+                color: 0x8c7e63,
+                roughness: 0.8,
+                metalness: 0.1
+            });
+
+            // Base Platform (Plaza & Foundations)
+            const baseGeo = new THREE.BoxGeometry(34, 2, 34);
+            const baseMesh = new THREE.Mesh(baseGeo, stoneMaterial);
+            baseMesh.position.y = -1;
+            baseMesh.receiveShadow = true;
+            baseMesh.castShadow = true;
+            pyramidGroup.add(baseMesh);
+
+            // Plaza surrounding grass and courtyard
+            const groundGeo = new THREE.PlaneGeometry(90, 90);
+            const groundMesh = new THREE.Mesh(groundGeo, grassMaterial);
+            groundMesh.rotation.x = -Math.PI / 2;
+            groundMesh.position.y = -2.1;
+            groundMesh.receiveShadow = true;
+            pyramidGroup.add(groundMesh);
+
+            // Stepped Pyramid Tiers (Multi-tiered Mayan structure like Structure B1-1)
+            const tiers = 6;
+            let currentWidth = 22;
+            let currentZWidth = 22;
+            let currentHeight = 0;
+            const tierHeight = 2.2;
+
+            for (let i = 0; i < tiers; i++) {
+                const tierGeo = new THREE.BoxGeometry(currentWidth, tierHeight, currentZWidth);
+                const tierMesh = new THREE.Mesh(tierGeo, i % 2 === 0 ? stoneMaterial : darkStoneMaterial);
+                tierMesh.position.y = currentHeight + tierHeight / 2;
+                tierMesh.castShadow = true;
+                tierMesh.receiveShadow = true;
+                pyramidGroup.add(tierMesh);
+
+                // Add architectural details / stone blocks perimeter
+                const detailGeo = new THREE.BoxGeometry(currentWidth + 0.4, 0.4, currentZWidth + 0.4);
+                const detailMesh = new THREE.Mesh(detailGeo, darkStoneMaterial);
+                detailMesh.position.y = currentHeight + tierHeight;
+                detailMesh.castShadow = true;
+                pyramidGroup.add(detailMesh);
+
+                currentWidth -= 2.5;
+                currentZWidth -= 2.5;
+                currentHeight += tierHeight;
+            }
+
+            // Monumental Central Staircase (Escalinata Principal facing front)
+            const stairLevels = 18;
+            const stairTotalHeight = currentHeight;
+            const stairWidth = 6;
+            const stairDepth = 18;
+
+            for (let s = 0; s < stairLevels; s++) {
+                const stepW = stairWidth;
+                const stepH = stairTotalHeight / stairLevels;
+                const stepD = (stairDepth / stairLevels) * 1.2;
+
+                const stepGeo = new THREE.BoxGeometry(stepW, stepH, stepD);
+                const stepMesh = new THREE.Mesh(stepGeo, stoneMaterial);
+                
+                stepMesh.position.set(
+                    0,
+                    (s * stepH) + stepH / 2,
+                    (stairDepth / 2) - (s * (stairDepth / stairLevels)) + 2
+                );
+                stepMesh.castShadow = true;
+                stepMesh.receiveShadow = true;
+                pyramidGroup.add(stepMesh);
+            }
+
+            // Superior Temple Sanctuary at the top
+            const templeBaseGeo = new THREE.BoxGeometry(8, 4, 6);
+            const templeBaseMesh = new THREE.Mesh(templeBaseGeo, templeMaterial);
+            templeBaseMesh.position.set(0, currentHeight + 2, -1);
+            templeBaseMesh.castShadow = true;
+            templeBaseMesh.receiveShadow = true;
+            pyramidGroup.add(templeBaseMesh);
+
+            // Temple Roof / Crest (Crestería Maya)
+            const roofGeo = new THREE.BoxGeometry(7.4, 3, 1.5);
+            const roofMesh = new THREE.Mesh(roofGeo, darkStoneMaterial);
+            roofMesh.position.set(0, currentHeight + 5.5, -2);
+            roofMesh.castShadow = true;
+            pyramidGroup.add(roofMesh);
+
+            // Side Ruin Platforms (Estructuras Menores)
+            const sidePlatformGeo = new THREE.BoxGeometry(8, 3, 8);
+            const sidePlatform1 = new THREE.Mesh(sidePlatformGeo, stoneMaterial);
+            sidePlatform1.position.set(16, 0.5, 10);
+            sidePlatform1.castShadow = true;
+            sidePlatform1.receiveShadow = true;
+            pyramidGroup.add(sidePlatform1);
+
+            const sidePlatform2 = new THREE.Mesh(sidePlatformGeo, darkStoneMaterial);
+            sidePlatform2.position.set(-16, 0.5, -10);
+            sidePlatform2.castShadow = true;
+            sidePlatform2.receiveShadow = true;
+            pyramidGroup.add(sidePlatform2);
+
+            scene.add(pyramidGroup);
+        }
+
+        function createAtmosphere() {
+            const particleCount = 350;
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+
+            for (let i = 0; i < particleCount * 3; i += 3) {
+                positions[i] = (Math.random() - 0.5) * 100;
+                positions[i + 1] = Math.random() * 45;
+                positions[i + 2] = (Math.random() - 0.5) * 100;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 16;
+            canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
+            grad.addColorStop(0, 'rgba(217, 155, 38, 0.9)');
+            grad.addColorStop(1, 'rgba(217, 155, 38, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 16, 16);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.PointsMaterial({
+                size: 0.9,
+                map: texture,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function onDocumentMouseMove(e) {
+            mouseX = (e.clientX - windowHalfX) / 100;
+            mouseY = (e.clientY - windowHalfY) / 100;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isAutoRotating && pyramidGroup) {
+                pyramidGroup.rotation.y += 0.003;
+            }
+
+            if (particles) {
+                const positions = particles.geometry.attributes.position.array;
+                for (let i = 1; i < positions.length; i += 3) {
+                    positions[i] -= 0.03;
+                    if (positions[i] < 0) positions[i] = 45;
+                }
+                particles.geometry.attributes.position.needsUpdate = true;
+            }
+
+            camera.position.x += (mouseX * 3 - camera.position.x) * 0.05;
+            camera.position.y += ((-mouseY * 3 + 25) - camera.position.y) * 0.05;
+            camera.lookAt(0, 5, 0);
+
+            renderer.render(scene, camera);
+        }
+
+        function setView(viewType) {
+            isAutoRotating = false;
+            const btn = document.getElementById('rotate-btn');
+            if (btn) btn.innerHTML = '<i class="fa-solid fa-play"></i> Auto Rotar';
+
+            let targetPos, targetRot;
+
+            switch(viewType) {
+                case 'overview':
+                    targetPos = { x: 0, y: 25, z: 48 };
+                    targetRot = { x: 0, y: 0 };
+                    updateInfo('Pirámide Principal - Estructura B1-1', 'Vista panorámica frontal de la pirámide principal de Tazumal, revelando la majestuosidad de sus terrazas escalonadas y la escalinata central.');
+                    break;
+                case 'plaza':
+                    targetPos = { x: 35, y: 16, z: 35 };
+                    targetRot = { x: 0.2, y: Math.PI / 4 };
+                    updateInfo('Plaza Ceremonial y Entorno', 'Perspectiva desde la plaza principal donde se realizaban las ceremonias públicas, procesiones y rituales sagrados mayas.');
+                    break;
+                case 'structure':
+                    targetPos = { x: 0, y: 12, z: 22 };
+                    targetRot = { x: -0.1, y: 0 };
+                    updateInfo('Escalinata Monumental', 'Detalle frontal de la escalinata principal de ascenso al templo superior, mostrando la mampostería original restaurada.');
+                    break;
+                case 'museum':
+                    targetPos = { x: -30, y: 20, z: -30 };
+                    targetRot = { x: 0.3, y: -Math.PI / 3 };
+                    updateInfo('Estructuras Menores y Sector Norte', 'Área circundante que comprende plataformas menores, estructuras habitacionales y zonas de ofrendas arqueológicas.');
+                    break;
+            }
+
+            smoothCameraMove(targetPos, targetRot);
+        }
+
+        function smoothCameraMove(targetPos, targetRot) {
+            if (!pyramidGroup) return;
+            const startPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+            const startRot = { x: pyramidGroup.rotation.x, y: pyramidGroup.rotation.y };
+            let progress = 0;
+
+            function step() {
+                progress += 0.04;
+                camera.position.x = startPos.x + (targetPos.x - startPos.x) * easeOutCubic(progress);
+                camera.position.y = startPos.y + (targetPos.y - startPos.y) * easeOutCubic(progress);
+                camera.position.z = startPos.z + (targetPos.z - startPos.z) * easeOutCubic(progress);
+
+                if (pyramidGroup) {
+                    pyramidGroup.rotation.y = startRot.y + (targetRot.y - startRot.y) * easeOutCubic(progress);
+                    pyramidGroup.rotation.x = startRot.x + (targetRot.x - startRot.x) * easeOutCubic(progress);
+                }
+
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                }
+            }
+            step();
+        }
+
+        function easeOutCubic(x) {
+            return 1 - Math.pow(1 - x, 3);
+        }
+
+        function updateInfo(title, desc) {
+            const titleEl = document.getElementById('info-title');
+            const descEl = document.getElementById('info-desc');
+            if (titleEl) titleEl.innerText = title;
+            if (descEl) descEl.innerText = desc;
+        }
+
+        function selectPhoto(view, title, desc) {
+            setView(view);
+            updateInfo(title, desc);
+        }
+
+        function resetCamera() {
+            setView('overview');
+        }
+
+        function toggleAutoRotate() {
+            isAutoRotating = !isAutoRotating;
+            const btn = document.getElementById('rotate-btn');
+            if (btn) {
+                if (isAutoRotating) {
+                    btn.innerHTML = '<i class="fa-solid fa-pause"></i> Pausar Rotación';
+                } else {
+                    btn.innerHTML = '<i class="fa-solid fa-play"></i> Auto Rotar';
+                }
+            }
+        }
+
+        function toggleAudio() {
+            const btnTxt = document.getElementById('audio-txt');
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                audioInterval = setInterval(() => {
+                    if (!audioCtx) return;
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(80 + Math.random() * 40, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(0.015, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 3);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 3);
+                }, 4000);
+                if (btnTxt) btnTxt.innerText = 'Ambiente: ON';
+            } else {
+                audioCtx.close();
+                audioCtx = null;
+                clearInterval(audioInterval);
+                if (btnTxt) btnTxt.innerText = 'Ambiente: OFF';
+            }
+        }
+
+        window.onload = function() {
+            init3D();
+        };
+    </script>
+</body>
+</html>
